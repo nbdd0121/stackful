@@ -1,3 +1,58 @@
+//! # Bridge between sync and async
+//!
+//! `stackful` is a minimalistic library that allows you to convert between sync code and async
+//! freely.
+//!
+//! A major issue of Rust's `async` is that it is very intrusive: it pretty much requires a whole
+//! program rewrite to convert synchronous code to async, and it would require many libraries to
+//! support both variants.
+//!
+//! Currently, we could use `async_std::task::spawn_blocking` or equivalents to convert blocking
+//! IO into async IO using thread pools, or use `async_std::task::block_on` to use an async library
+//! in blocking code. But it is still quite problematic if you want to use a synchronous middleware
+//! inside an generally asynchronous program.
+//!
+//! `stackful` aims to blur the boundary by using stackful coroutines to allow arbitary yield
+//! points within other-wise synchronous code.
+//!
+//! ## Usage
+//! Use `wait` to convert an async value to a sync value, similar to `.await` or `block_on`.
+//!
+//! ```
+//! # use std::time::Duration;
+//! use stackful::wait;
+//! # async_std::task::block_on(stackful::stackful(|| {
+//! wait(async_std::task::sleep(Duration::from_secs(1)));
+//! # }));
+//! ```
+//!
+//! Use `stackful` to convert a synchronous function into a `Future`:
+//! ```
+//! use stackful::stackful;
+//! # async_std::task::spawn(async {
+//! async_std::task::spawn_local(stackful(|| {
+//!     // Synchronous code
+//!     // This shouldn't block, however
+//! }));
+//! # });
+//! ```
+//! You can combine these functions, note that we seamlessly handle nested functions:
+//! ```
+//! # use std::time::Duration;
+//! use stackful::{stackful, wait};
+//!
+//! fn maybe_sleep(dur: Option<Duration>) {
+//!     // This is not possible under `async`!
+//!     dur.map(|x| wait(async_std::task::sleep(x)));
+//! }
+//!
+//! # async_std::task::spawn(async {
+//! async_std::task::spawn_local(async {
+//!     stackful(|| maybe_sleep(Some(Duration::from_secs(1)))).await
+//! });
+//! # });
+//! ```
+
 use std::cell::Cell;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -221,13 +276,13 @@ impl<T, F: FnOnce() -> T> StackfulFuture<T, F> {
             ptr::write((stack_bottom + OFFSET_RETURN) as *mut usize, stack);
         }
 
-        // SAFETY: enter is called only once, so at this time is F is available at top of the stack.
+        // SAFETY: enter is called only once, so at this time is F is available at bottom of the stack.
         let f = unsafe { ptr::read(stack_bottom as *const F) };
 
         let output = panic::catch_unwind(AssertUnwindSafe(f));
 
         // Retrieve the return stack pointer here.
-        let stack = unsafe { ptr::read((stack_bottom + 0x1000 - mem::size_of::<usize>()) as *const usize) };
+        let stack = unsafe { ptr::read((stack_bottom + OFFSET_RETURN) as *const usize) };
 
         // If the panic is initiated by us, just ignore it. Otherwise it will result in a memory
         // leak.
@@ -257,7 +312,7 @@ impl<T, F: FnOnce() -> T> Future for StackfulFuture<T, F> {
     }
 }
 
-/// Turn a blocking function into a `Future`.
+/// Turn a synchronous function into a `Future`.
 ///
 /// `stackful` can be paired with `wait` to allow async function to be used within a sync function
 /// and it can be nested arbitarily deep.
@@ -280,7 +335,8 @@ pub async fn stackful<T, F: FnOnce() -> T>(f: F) -> T {
             result: None,
         },
         _marker: PhantomData,
-    }.await
+    }
+    .await
 }
 
 #[test]
