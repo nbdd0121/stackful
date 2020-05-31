@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Gary Guo <gary@garyguo.net>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/nbdd0121/stackful"
+description = "Bridge between sync and async"
 
 [dependencies]
 libc = "0.2"
