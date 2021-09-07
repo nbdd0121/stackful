@@ -321,8 +321,8 @@ pub async fn stackful<T, F: FnOnce() -> T>(f: F) -> T {
 
     // For convience we use the bottom of the stack to pass data structure around. Check that types
     // doesn't violate the constraints.
-    assert!(mem::size_of::<T>() <= OFFSET_WAKER);
-    assert!(mem::align_of::<T>() <= 4096);
+    assert!(mem::size_of::<std::thread::Result<T>>() <= OFFSET_WAKER);
+    assert!(mem::align_of::<std::thread::Result<T>>() <= 4096);
     assert!(mem::size_of::<F>() <= OFFSET_WAKER);
     assert!(mem::align_of::<F>() <= 4096);
 
