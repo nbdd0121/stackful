@@ -1,5 +1,12 @@
-extern crate cc;
+use std::env;
 
 fn main() {
-    cc::Build::new().file("src/fiber.s").compile("stackful");
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let file = match &*target_arch {
+        "x86_64" => "src/x86_64.s",
+        _ => {
+            panic!("Current architecture is not supported");
+        }
+    };
+    cc::Build::new().file(file).compile("stackful");
 }
