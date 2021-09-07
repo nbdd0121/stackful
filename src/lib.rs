@@ -161,7 +161,7 @@ pub fn wait<T>(mut fut: impl Future<Output = T>) -> T {
         let waker_ref = match unsafe {
             ptr::read((stack_bottom + OFFSET_WAKER) as *const Option<&'static Waker>)
         } {
-            None => panic!(DropPanic),
+            None => std::panic::panic_any(DropPanic),
             Some(v) => v,
         };
         let mut context = Context::from_waker(waker_ref);
