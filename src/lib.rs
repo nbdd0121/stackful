@@ -91,13 +91,18 @@ const OFFSET_RETURN: usize = 4096 - mem::size_of::<usize>();
 
 impl Stack {
     fn allocate() -> Self {
+        #[cfg(not(target_os = "macos"))]
+        use libc::MAP_STACK;
+        #[cfg(target_os = "macos")]
+        const MAP_STACK: libc::c_int = 0;
+
         unsafe {
             // Allocate stack
             let ptr = libc::mmap(
                 ptr::null_mut(),
                 0x200000,
                 libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_STACK,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | MAP_STACK,
                 -1,
                 0,
             );

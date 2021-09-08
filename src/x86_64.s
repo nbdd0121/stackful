@@ -31,7 +31,9 @@ fiber_restore_ret_raw:
 # fiber_enter: fn(usize, fn(usize) -> usize)
 # Enter a fresh stack and call the supplied function
 .global fiber_enter
+.global _fiber_enter
 fiber_enter:
+_fiber_enter:
     call fiber_save_raw
     # Switch stack and enter
     xchg rsp, rdi
@@ -43,7 +45,9 @@ fiber_enter:
 
 # fiber_switch: fn(usize) -> usize
 .global fiber_switch
+.global _fiber_switch
 fiber_switch:
+_fiber_switch:
     call fiber_save_raw
     # Switch stack
     mov rax, rsp
