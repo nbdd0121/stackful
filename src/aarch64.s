@@ -31,8 +31,7 @@ fiber_restore_ret_raw:
 
 # fiber_enter: fn(usize, fn(usize) -> usize)
 # Enter a fresh stack and call the supplied function
-.global fiber_enter
-fiber_enter:
+.macro FIBER_ENTER_IMPL
     mov x9, lr
     bl  fiber_save_raw
     # Switch stack and enter
@@ -44,10 +43,10 @@ fiber_enter:
     mov sp, x0
     mov x1, 1
     b   fiber_restore_ret_raw
+.endm
 
 # fiber_switch: fn(usize) -> usize
-.global fiber_switch
-fiber_switch:
+.macro FIBER_SWITCH_IMPL
     mov x9, lr
     bl  fiber_save_raw
     # Switch stack
@@ -56,3 +55,20 @@ fiber_switch:
     mov x0, x9
     mov x1, 0
     b   fiber_restore_ret_raw
+.endm
+
+.global fiber_enter
+fiber_enter:
+    FIBER_ENTER_IMPL
+
+.global _fiber_enter
+_fiber_enter:
+    FIBER_ENTER_IMPL
+
+.global fiber_switch
+fiber_switch:
+    FIBER_SWITCH_IMPL
+
+.global _fiber_switch
+_fiber_switch:
+    FIBER_SWITCH_IMPL
