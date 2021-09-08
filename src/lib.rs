@@ -62,6 +62,8 @@ use std::pin::Pin;
 use std::ptr;
 use std::task::{Context, Poll, Waker};
 
+mod page_size;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct SwitchResult {
@@ -104,7 +106,8 @@ impl Stack {
             }
 
             // Guard page to avoid stack overflow
-            let ret = libc::mprotect(ptr.add(0x1000), 0x1000, libc::PROT_NONE);
+            let page_size = page_size::get();
+            let ret = libc::mprotect(ptr.add(page_size), page_size, libc::PROT_NONE);
             if ret != 0 {
                 panic!("failed to allocated stack");
             }
