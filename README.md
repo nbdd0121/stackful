@@ -1,5 +1,9 @@
 # stackful
 
+[![](https://img.shields.io/crates/v/stackful.svg)](https://crates.io/crates/stackful)
+[![](https://docs.rs/stackful/badge.svg)](https://docs.rs/stackful/)
+[![Build Status](https://github.com/nbdd0121/stackful/workflows/CI/badge.svg)](https://github.com/nbdd0121/stackful/actions)
+
 `stackful` attempts to bridge sync and async and blur the difference between them.
 
 It allows you to easily convert between them with two supplied function `wait` and `stackful`.
