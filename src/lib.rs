@@ -169,7 +169,7 @@ pub fn wait<T>(mut fut: impl Future<Output = T>) -> T {
         let waker_ref = match unsafe {
             ptr::read((stack_bottom + OFFSET_WAKER) as *const Option<&'static Waker>)
         } {
-            None => std::panic::panic_any(DropPanic),
+            None => std::panic::resume_unwind(Box::new(DropPanic)),
             Some(v) => v,
         };
         let mut context = Context::from_waker(waker_ref);
@@ -224,10 +224,7 @@ impl Stackful {
             Guard(bottom)
         });
 
-        let prev_hook = panic::take_hook();
-        panic::set_hook(Box::new(|_| {}));
         let result = unsafe { fiber_switch(self.result.unwrap().stack) };
-        panic::set_hook(prev_hook);
         assert!(result.complete);
     }
 
