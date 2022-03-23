@@ -20,7 +20,7 @@ fiber_restore_ret_raw:
     ldp d10, d11, [sp, 0x80]
     ldp d12, d13, [sp, 0x90]
     ldp d14, d15, [sp, 0xA0]
-    ldp lr, x19, [sp, 0x00]
+    ldp x30, x19, [sp, 0x00]
     ldp x20, x21, [sp, 0x10]
     ldp x22, x23, [sp, 0x20]
     ldp x24, x25, [sp, 0x30]
@@ -35,7 +35,7 @@ fiber_restore_ret_raw:
 .global _fiber_enter
 fiber_enter:
 _fiber_enter:
-    mov x9, lr
+    mov x9, x30
     bl  fiber_save_raw
     # Switch stack and enter
     mov x9, sp
@@ -52,7 +52,7 @@ _fiber_enter:
 .global _fiber_switch
 fiber_switch:
 _fiber_switch:
-    mov x9, lr
+    mov x9, x30
     bl  fiber_save_raw
     # Switch stack
     mov x9, sp
