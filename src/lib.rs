@@ -61,80 +61,18 @@ use std::panic::{self, AssertUnwindSafe};
 use std::pin::Pin;
 use std::ptr;
 use std::task::{Context, Poll, Waker};
+use core::num::NonZeroUsize;
 
 mod page_size;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct SwitchResult {
-    stack: usize,
-    value: usize,
-}
-
-extern "C" {
-    fn fiber_enter(stack: usize, f: extern "C" fn(usize) -> SwitchResult) -> SwitchResult;
-    fn fiber_switch(stack: usize, value: usize) -> SwitchResult;
-}
+mod fiber;
+use fiber::*;
 
 thread_local! {
     static STACK: Cell<usize> = Cell::new(0);
 }
 
-// Layout:
-// 0 .. 4096-2*usize: Either F or T, depending on stage
-// 4096-2*usize .. 4096-usize: &Waker
-// 4096-usize .. 4096: Return stack
-struct Stack(usize);
-
 const OFFSET_WAKER: usize = 4096 - 2 * mem::size_of::<usize>();
 const OFFSET_RETURN: usize = 4096 - mem::size_of::<usize>();
-
-impl Stack {
-    fn allocate() -> Self {
-        #[cfg(not(target_os = "macos"))]
-        use libc::MAP_STACK;
-        #[cfg(target_os = "macos")]
-        const MAP_STACK: libc::c_int = 0;
-
-        unsafe {
-            // Allocate stack
-            let ptr = libc::mmap(
-                ptr::null_mut(),
-                0x200000,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | MAP_STACK,
-                -1,
-                0,
-            );
-            if ptr.is_null() {
-                panic!("failed to allocate stack");
-            }
-
-            // Guard page to avoid stack overflow
-            let page_size = page_size::get();
-            let ret = libc::mprotect(ptr.add(page_size), page_size, libc::PROT_NONE);
-            if ret != 0 {
-                panic!("failed to allocated stack");
-            }
-
-            Self(ptr as usize)
-        }
-    }
-
-    fn bottom(&self) -> usize {
-        self.0
-    }
-
-    fn top(&self) -> usize {
-        self.0 + 0x200000
-    }
-}
-
-impl Drop for Stack {
-    fn drop(&mut self) {
-        unsafe { libc::munmap(self.0 as _, 0x200000) };
-    }
-}
 
 // Yield control from the current fiber
 fn fiber_yield() {
@@ -143,9 +81,9 @@ fn fiber_yield() {
 
     unsafe {
         let stack = ptr::read((stack_bottom + OFFSET_RETURN) as *const usize);
-        let result = fiber_switch(stack, 0);
-        debug_assert!(result.stack != 0);
-        ptr::write((stack_bottom + OFFSET_RETURN) as *mut usize, result.stack);
+        let result = fiber_switch(StackPointer(NonZeroUsize::new_unchecked(stack)), 0);
+        debug_assert!(result.stack.is_some());
+        ptr::write((stack_bottom + OFFSET_RETURN) as *mut usize, result.stack.unwrap_unchecked().0.get());
     }
 }
 
@@ -193,7 +131,7 @@ struct Stackful {
 impl Drop for Stackful {
     fn drop(&mut self) {
         match self.result {
-            Some(result) if result.stack != 0 => {
+            Some(SwitchResult { stack: Some(_), .. }) => {
                 self.abort();
             }
             _ => (),
@@ -222,11 +160,11 @@ impl Stackful {
             Guard(bottom)
         });
 
-        let result = unsafe { fiber_switch(self.result.unwrap().stack, 0) };
-        assert!(result.stack == 0);
+        let result = unsafe { fiber_switch(self.result.unwrap().stack.unwrap_unchecked(), 0) };
+        assert!(result.stack.is_none());
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>, f: extern "C" fn(usize) -> SwitchResult) -> Poll<()> {
+    fn poll(&mut self, cx: &mut Context<'_>, f: extern "C" fn(StackPointer, usize) -> FiberReturn) -> Poll<()> {
         // We need to use the guard to make sure lifetime is correct in case of panic.
         struct Guard(usize);
         impl Drop for Guard {
@@ -248,15 +186,15 @@ impl Stackful {
         });
 
         let result = match self.result {
-            None => unsafe { fiber_enter(self.stack.top(), f) },
+            None => unsafe { fiber_enter(self.stack.as_pointer(), 0, f) },
             Some(v) => {
-                assert!(v.stack != 0, "polling a completed future");
-                unsafe { fiber_switch(v.stack, 0) }
+                assert!(v.stack.is_some(), "polling a completed future");
+                unsafe { fiber_switch(v.stack.unwrap_unchecked(), 0) }
             }
         };
 
         self.result = Some(result);
-        if result.stack == 0 {
+        if result.stack.is_none() {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -271,7 +209,8 @@ struct StackfulFuture<T, F> {
 }
 
 impl<T, F: FnOnce() -> T> StackfulFuture<T, F> {
-    extern "C" fn enter(stack: usize) -> SwitchResult {
+    extern "C" fn enter(stack: StackPointer, payload: usize) -> FiberReturn {
+        let stack = stack.0.get();
         let stack_bottom = STACK.with(|cell| cell.get());
 
         // Save the return stack pointer here.
@@ -291,9 +230,9 @@ impl<T, F: FnOnce() -> T> StackfulFuture<T, F> {
         // leak.
         if let Err(ref err) = output {
             if err.is::<DropPanic>() {
-                return SwitchResult {
-                    stack,
-                    value: 0,
+                return FiberReturn {
+                    stack: unsafe{StackPointer(NonZeroUsize::new_unchecked(stack))},
+                    payload: 0,
                 };
             }
         }
@@ -301,9 +240,9 @@ impl<T, F: FnOnce() -> T> StackfulFuture<T, F> {
         // SAFETY: we checked that the size and alignment is okay when constructing.
         unsafe { ptr::write(stack_bottom as *mut std::thread::Result<T>, output) };
 
-        SwitchResult {
-            stack,
-            value: 0,
+        FiberReturn {
+            stack: unsafe{StackPointer(NonZeroUsize::new_unchecked(stack))},
+            payload: 0,
         }
     }
 }
