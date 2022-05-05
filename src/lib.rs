@@ -68,12 +68,12 @@ mod page_size;
 #[derive(Clone, Copy)]
 struct SwitchResult {
     stack: usize,
-    complete: bool,
+    value: usize,
 }
 
 extern "C" {
-    fn fiber_enter(stack: usize, f: extern "C" fn(usize) -> usize) -> SwitchResult;
-    fn fiber_switch(stack: usize) -> SwitchResult;
+    fn fiber_enter(stack: usize, f: extern "C" fn(usize) -> SwitchResult) -> SwitchResult;
+    fn fiber_switch(stack: usize, value: usize) -> SwitchResult;
 }
 
 thread_local! {
@@ -143,8 +143,8 @@ fn fiber_yield() {
 
     unsafe {
         let stack = ptr::read((stack_bottom + OFFSET_RETURN) as *const usize);
-        let result = fiber_switch(stack);
-        debug_assert!(!result.complete);
+        let result = fiber_switch(stack, 0);
+        debug_assert!(result.stack != 0);
         ptr::write((stack_bottom + OFFSET_RETURN) as *mut usize, result.stack);
     }
 }
@@ -193,9 +193,7 @@ struct Stackful {
 impl Drop for Stackful {
     fn drop(&mut self) {
         match self.result {
-            Some(SwitchResult {
-                complete: false, ..
-            }) => {
+            Some(result) if result.stack != 0 => {
                 self.abort();
             }
             _ => (),
@@ -224,11 +222,11 @@ impl Stackful {
             Guard(bottom)
         });
 
-        let result = unsafe { fiber_switch(self.result.unwrap().stack) };
-        assert!(result.complete);
+        let result = unsafe { fiber_switch(self.result.unwrap().stack, 0) };
+        assert!(result.stack == 0);
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>, f: extern "C" fn(usize) -> usize) -> Poll<()> {
+    fn poll(&mut self, cx: &mut Context<'_>, f: extern "C" fn(usize) -> SwitchResult) -> Poll<()> {
         // We need to use the guard to make sure lifetime is correct in case of panic.
         struct Guard(usize);
         impl Drop for Guard {
@@ -252,13 +250,13 @@ impl Stackful {
         let result = match self.result {
             None => unsafe { fiber_enter(self.stack.top(), f) },
             Some(v) => {
-                assert!(!v.complete, "polling a completed future");
-                unsafe { fiber_switch(v.stack) }
+                assert!(v.stack != 0, "polling a completed future");
+                unsafe { fiber_switch(v.stack, 0) }
             }
         };
 
         self.result = Some(result);
-        if result.complete {
+        if result.stack == 0 {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -273,7 +271,7 @@ struct StackfulFuture<T, F> {
 }
 
 impl<T, F: FnOnce() -> T> StackfulFuture<T, F> {
-    extern "C" fn enter(stack: usize) -> usize {
+    extern "C" fn enter(stack: usize) -> SwitchResult {
         let stack_bottom = STACK.with(|cell| cell.get());
 
         // Save the return stack pointer here.
@@ -293,14 +291,20 @@ impl<T, F: FnOnce() -> T> StackfulFuture<T, F> {
         // leak.
         if let Err(ref err) = output {
             if err.is::<DropPanic>() {
-                return stack;
+                return SwitchResult {
+                    stack,
+                    value: 0,
+                };
             }
         }
 
         // SAFETY: we checked that the size and alignment is okay when constructing.
         unsafe { ptr::write(stack_bottom as *mut std::thread::Result<T>, output) };
 
-        stack
+        SwitchResult {
+            stack,
+            value: 0,
+        }
     }
 }
 
