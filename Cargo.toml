@@ -9,7 +9,7 @@ description = "Bridge between sync and async"
 
 [dependencies]
 libc = "0.2"
-futures-executor = "0.3.5"
+futures-executor = { version = "0.3.5", optional = true }
 
 [build-dependencies]
 cc = "1.0"
@@ -18,3 +18,8 @@ cc = "1.0"
 async-std = { version = "1.6", features = ["unstable"] }
 futures = "0.3.5"
 byteorder = "1.3"
+
+[features]
+future = ["futures-executor"]
+nightly = []
+default = ["future"]

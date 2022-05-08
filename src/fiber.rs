@@ -29,10 +29,6 @@ extern "C" {
     pub fn fiber_switch(stack: StackPointer, payload: usize) -> SwitchResult;
 }
 
-// Layout:
-// 0 .. 4096-2*usize: Either F or T, depending on stage
-// 4096-2*usize .. 4096-usize: &Waker
-// 4096-usize .. 4096: Return stack
 pub struct Stack(pub usize);
 
 impl Stack {
@@ -58,7 +54,7 @@ impl Stack {
 
             // Guard page to avoid stack overflow
             let page_size = page_size::get();
-            let ret = libc::mprotect(ptr.add(page_size), page_size, libc::PROT_NONE);
+            let ret = libc::mprotect(ptr, page_size, libc::PROT_NONE);
             if ret != 0 {
                 panic!("failed to allocated stack");
             }
@@ -71,12 +67,8 @@ impl Stack {
         self.0
     }
 
-    pub fn top(&self) -> usize {
-        self.0 + 0x200000
-    }
-
-    pub fn as_pointer(&self) -> StackPointer {
-        unsafe { StackPointer(NonZeroUsize::new_unchecked(self.top())) }
+    pub fn top(&self) -> StackPointer {
+        unsafe { StackPointer(NonZeroUsize::new_unchecked(self.0 + 0x200000)) }
     }
 }
 
