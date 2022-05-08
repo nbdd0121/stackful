@@ -9,6 +9,7 @@ use core::pin::Pin;
 pub use core::ops::{Generator, GeneratorState};
 
 #[cfg(not(feature = "nightly"))]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum GeneratorState<Y, R> {
     Yielded(Y),
     Complete(R),
