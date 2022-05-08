@@ -26,6 +26,7 @@ pub trait Generator<R = ()> {
 pub struct StackfulGenerator<'a, Y, R, Resume> {
     stack: Stack,
     result: Option<StackPointer>,
+    stack_limit: Option<usize>,
     func: Option<Box<dyn FnOnce(&YieldHandle<Y, Resume>, Resume) -> R + 'a>>,
     // Make sure this Generator is not Send.
     _marker: PhantomData<*const fn(Resume) -> (Y, R)>,
@@ -49,6 +50,7 @@ impl<'a, Y, R, Resume> StackfulGenerator<'a, Y, R, Resume> {
         Self {
             func: Some(Box::new(f)),
             stack,
+            stack_limit: None,
             result: None,
             _marker: PhantomData,
         }
@@ -115,12 +117,14 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
         let mut payload = ResumePayload::<Y, R, Resume> {
             resume: ManuallyDrop::new(arg),
         };
+        let stack_limit = stacker::get_stack_limit();
         let result = match self.result {
             None => {
                 let mut payload = EnterPayload {
                     f: ManuallyDrop::new(self.func.take().expect("polling a completed future")),
                     p: core::ptr::addr_of_mut!(payload) as usize,
                 };
+                stacker::set_stack_limit(Some(self.stack.bottom()));
                 unsafe {
                     fiber_enter(
                         self.stack.top(),
@@ -130,10 +134,13 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
                 }
             }
             Some(v) => {
+                stacker::set_stack_limit(self.stack_limit);
                 unsafe { fiber_switch(v, core::ptr::addr_of_mut!(payload) as usize) }
             }
         };
         self.result = result.stack;
+        self.stack_limit = stacker::get_stack_limit();
+        stacker::set_stack_limit(stack_limit);
 
         if result.payload == 0 {
             match unsafe { ManuallyDrop::take(&mut payload.complete) } {

@@ -10,6 +10,7 @@ description = "Bridge between sync and async"
 [dependencies]
 libc = "0.2"
 futures-executor = { version = "0.3.5", optional = true }
+stacker = { git = "https://github.com/nbdd0121/stacker.git" }
 
 [build-dependencies]
 cc = "1.0"
