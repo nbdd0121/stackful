@@ -1,6 +1,7 @@
 use crate::page_size;
 use core::num::NonZeroUsize;
 use core::ptr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -31,8 +32,17 @@ extern "C" {
 
 pub struct Stack(pub usize);
 
+// Keep a stack so that repeated fiber calls don't require new allocation.
+static STACK_CACHE: AtomicUsize = AtomicUsize::new(0);
+
 impl Stack {
     pub fn allocate() -> Self {
+        // Before allocating, first check the cache.
+        let stack = STACK_CACHE.swap(0, Ordering::Relaxed);
+        if stack != 0 {
+            return Self(stack);
+        }
+
         #[cfg(not(target_os = "macos"))]
         use libc::MAP_STACK;
         #[cfg(target_os = "macos")]
@@ -74,6 +84,14 @@ impl Stack {
 
 impl Drop for Stack {
     fn drop(&mut self) {
+        // Before freeing, first check the cache.
+        if STACK_CACHE
+            .compare_exchange(0, self.0, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            return;
+        }
+
         unsafe { libc::munmap(self.0 as _, 0x200000) };
     }
 }
