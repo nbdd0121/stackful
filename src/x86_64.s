@@ -28,20 +28,20 @@ fiber_restore_ret_raw:
     pop rbx
     ret
 
-# fiber_enter: fn(StackPointer, usize, fn(StackPointer, usize) -> FiberReturn) -> SwitchResult
+# fiber_enter: fn(StackPointer, usize, fn(StackPointer, usize) -> !) -> SwitchResult
 # Enter a fresh stack and call the supplied function
 .global fiber_enter
 .global _fiber_enter
+.type fiber_enter, @function
 fiber_enter:
 _fiber_enter:
     call fiber_save_raw
     # Switch stack and enter
     xchg rsp, rdi
     call rdx
-    # Switch stack back and exit
-    mov rsp, rax
-    mov rax, 0
-    jmp fiber_restore_ret_raw
+
+    ud2
+.size fiber_enter, .-fiber_enter
 
 # fiber_switch: fn(StackPointer, usize) -> SwitchResult
 .global fiber_switch

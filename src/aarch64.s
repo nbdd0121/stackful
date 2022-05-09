@@ -29,10 +29,11 @@ fiber_restore_ret_raw:
     add sp, sp, 0xA0
     ret
 
-# fiber_enter: fn(StackPointer, usize, fn(StackPointer, usize) -> FiberReturn) -> SwitchResult
+# fiber_enter: fn(StackPointer, usize, fn(StackPointer, usize) -> !) -> SwitchResult
 # Enter a fresh stack and call the supplied function
 .global fiber_enter
 .global _fiber_enter
+.type fiber_enter, @function
 fiber_enter:
 _fiber_enter:
     mov x9, x30
@@ -42,10 +43,8 @@ _fiber_enter:
     mov sp, x0
     mov x0, x9
     blr x2
-    # Switch stack back and exit
-    mov sp, x0
-    mov x0, 0
-    b   fiber_restore_ret_raw
+    brk 1
+.size fiber_enter, .-fiber_enter
 
 # fiber_switch: fn(StackPointer, usize) -> SwitchResult
 .global fiber_switch

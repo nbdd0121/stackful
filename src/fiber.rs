@@ -9,13 +9,6 @@ pub struct StackPointer(pub NonZeroUsize);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct FiberReturn {
-    pub stack: StackPointer,
-    pub payload: usize,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
 pub struct SwitchResult {
     pub stack: Option<StackPointer>,
     pub payload: usize,
@@ -25,7 +18,7 @@ extern "C" {
     pub fn fiber_enter(
         stack: StackPointer,
         payload: usize,
-        f: extern "C" fn(StackPointer, payload: usize) -> FiberReturn,
+        f: extern "C" fn(StackPointer, payload: usize) -> !,
     ) -> SwitchResult;
     pub fn fiber_switch(stack: StackPointer, payload: usize) -> SwitchResult;
 }

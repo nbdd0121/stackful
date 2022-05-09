@@ -64,7 +64,7 @@ struct EnterPayload<'a, Y, R, Resume> {
     p: usize,
 }
 
-extern "C" fn enter<Y, R, Resume>(stack: StackPointer, payload: usize) -> FiberReturn {
+extern "C" fn enter<Y, R, Resume>(stack: StackPointer, payload: usize) -> ! {
     let enter = unsafe { &mut *(payload as *mut EnterPayload<'static, Y, R, Resume>) };
     let f = unsafe { ManuallyDrop::take(&mut enter.f) };
     let r = unsafe { (enter.p as *mut Resume).read() };
@@ -80,18 +80,20 @@ extern "C" fn enter<Y, R, Resume>(stack: StackPointer, payload: usize) -> FiberR
     // leak.
     if let Err(ref err) = output {
         if err.is::<DropPanic>() {
-            return FiberReturn {
-                stack: yielder.stack.get(),
-                payload: 0,
-            };
+            unsafe {
+                fiber_switch(yielder.stack.get(), 1);
+            }
+
+            unreachable!("resuming a cancelled generator");
         }
     }
 
     unsafe { (yielder.payload.get() as *mut std::thread::Result<R>).write(output) };
-    FiberReturn {
-        stack: yielder.stack.get(),
-        payload: 0,
+    unsafe {
+        fiber_switch(yielder.stack.get(), 1);
     }
+
+    unreachable!("resuming a completed generator");
 }
 
 impl<Y, R, Resume> Drop for StackfulGenerator<'_, Y, R, Resume> {
@@ -143,12 +145,13 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
         stacker::set_stack_limit(stack_limit);
 
         if result.payload == 0 {
+            GeneratorState::Yielded(unsafe { ManuallyDrop::take(&mut payload.yielded) })
+        } else {
+            self.result = None;
             match unsafe { ManuallyDrop::take(&mut payload.complete) } {
                 Err(err) => std::panic::resume_unwind(err),
                 Ok(v) => GeneratorState::Complete(v),
             }
-        } else {
-            GeneratorState::Yielded(unsafe { ManuallyDrop::take(&mut payload.yielded) })
         }
     }
 }
@@ -157,7 +160,7 @@ impl<Y, Resume> YieldHandle<Y, Resume> {
     pub fn yeet(&self, arg: Y) -> Resume {
         unsafe {
             self.payload.get().write(arg);
-            let result = fiber_switch(self.stack.get(), 1);
+            let result = fiber_switch(self.stack.get(), 0);
             self.stack.set(result.stack.unwrap());
             self.payload.set(result.payload as *mut Y);
             if result.payload == 0 {
