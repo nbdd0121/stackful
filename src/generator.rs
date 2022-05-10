@@ -37,8 +37,7 @@ impl<Y, R, Resume> Unpin for StackfulGenerator<'_, Y, R, Resume> {}
 
 pub struct YieldHandle<Y, Resume = ()> {
     stack: Cell<StackPointer>,
-    payload: Cell<*mut Y>,
-    _marker: PhantomData<Resume>,
+    _marker: PhantomData<(Y, Resume)>,
 }
 
 impl<'a, Y, R, Resume> StackfulGenerator<'a, Y, R, Resume> {
@@ -64,33 +63,29 @@ struct EnterPayload<'a, Y, R, Resume> {
     p: usize,
 }
 
+enum YieldPayload {
+    Yielded(*const ()),
+    Complete(*const ()),
+    Panic(*mut (dyn std::any::Any + Send)),
+}
+
 extern "C" fn enter<Y, R, Resume>(stack: StackPointer, payload: usize) -> ! {
     let enter = unsafe { &mut *(payload as *mut EnterPayload<'static, Y, R, Resume>) };
     let f = unsafe { ManuallyDrop::take(&mut enter.f) };
     let r = unsafe { (enter.p as *mut Resume).read() };
     let mut yielder = YieldHandle {
         stack: Cell::new(stack),
-        payload: Cell::new(enter.p as *mut Y),
         _marker: PhantomData,
     };
     let y = &mut yielder;
     let output = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || f(y, r)));
 
-    // If the panic is initiated by us, just ignore it. Otherwise it will result in a memory
-    // leak.
-    if let Err(ref err) = output {
-        if err.is::<DropPanic>() {
-            unsafe {
-                fiber_switch_leave(yielder.stack.get(), 1);
-            }
-
-            unreachable!("resuming a cancelled generator");
-        }
-    }
-
-    unsafe { (yielder.payload.get() as *mut std::thread::Result<R>).write(output) };
+    let payload = match output {
+        Ok(ref output) => YieldPayload::Complete(output as *const _ as _),
+        Err(err) => YieldPayload::Panic(Box::into_raw(err)),
+    };
     unsafe {
-        fiber_switch_leave(yielder.stack.get(), 1);
+        fiber_switch_leave(yielder.stack.get(), &payload as *const _ as _);
     }
 
     unreachable!("resuming a completed generator");
@@ -99,6 +94,8 @@ extern "C" fn enter<Y, R, Resume>(stack: StackPointer, payload: usize) -> ! {
 impl<Y, R, Resume> Drop for StackfulGenerator<'_, Y, R, Resume> {
     fn drop(&mut self) {
         if let Some(stack) = self.result {
+            // This will give us a `YieldPayload::Panic(DropPanic)`, but we can safely ignore it
+            // because DropPanic is a ZST.
             unsafe {
                 fiber_switch_enter(stack, 0);
             }
@@ -111,20 +108,13 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
     type Return = R;
 
     fn resume(mut self: Pin<&mut Self>, arg: Resume) -> GeneratorState<Y, R> {
-        union ResumePayload<Y, R, Resume> {
-            resume: ManuallyDrop<Resume>,
-            yielded: ManuallyDrop<Y>,
-            complete: ManuallyDrop<std::thread::Result<R>>,
-        }
-        let mut payload = ResumePayload::<Y, R, Resume> {
-            resume: ManuallyDrop::new(arg),
-        };
+        let payload = &arg as *const _ as usize;
         let stack_limit = stacker::get_stack_limit();
         let result = match self.result {
             None => {
                 let mut payload = EnterPayload {
                     f: ManuallyDrop::new(self.func.take().expect("polling a completed future")),
-                    p: core::ptr::addr_of_mut!(payload) as usize,
+                    p: payload,
                 };
                 stacker::set_stack_limit(Some(self.stack.bottom()));
                 unsafe {
@@ -137,20 +127,25 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
             }
             Some(v) => {
                 stacker::set_stack_limit(self.stack_limit);
-                unsafe { fiber_switch_enter(v, core::ptr::addr_of_mut!(payload) as usize) }
+                unsafe { fiber_switch_enter(v, payload) }
             }
         };
+        std::mem::forget(arg);
         self.result = result.stack;
         self.stack_limit = stacker::get_stack_limit();
         stacker::set_stack_limit(stack_limit);
 
-        if result.payload == 0 {
-            GeneratorState::Yielded(unsafe { ManuallyDrop::take(&mut payload.yielded) })
-        } else {
-            self.result = None;
-            match unsafe { ManuallyDrop::take(&mut payload.complete) } {
-                Err(err) => std::panic::resume_unwind(err),
-                Ok(v) => GeneratorState::Complete(v),
+        let y_payload = unsafe { (result.payload as *const YieldPayload).read() };
+
+        match y_payload {
+            YieldPayload::Yielded(y) => GeneratorState::Yielded(unsafe { (y as *const Y).read() }),
+            YieldPayload::Complete(r) => {
+                self.result = None;
+                GeneratorState::Complete(unsafe { (r as *const R).read() })
+            }
+            YieldPayload::Panic(p) => {
+                self.result = None;
+                std::panic::resume_unwind(unsafe { Box::from_raw(p) });
             }
         }
     }
@@ -159,10 +154,14 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
 impl<Y, Resume> YieldHandle<Y, Resume> {
     pub fn yeet(&self, arg: Y) -> Resume {
         unsafe {
-            self.payload.get().write(arg);
-            let result = fiber_switch_leave(self.stack.get(), 0);
+            // `arg` is passed by reference. It lives on the stack of the current fiber, which
+            // will be valid while the fiber hile the current fiber is suspended. `forget` it
+            // after `fiber_switch` because the ownership is transferred to the target fiber.
+            let payload = YieldPayload::Yielded(&arg as *const Y as _);
+            let result = fiber_switch_leave(self.stack.get(), &payload as *const YieldPayload as _);
+            std::mem::forget(arg);
+
             self.stack.set(result.stack.unwrap());
-            self.payload.set(result.payload as *mut Y);
             if result.payload == 0 {
                 std::panic::resume_unwind(Box::new(DropPanic));
             }
