@@ -134,6 +134,7 @@ pub async fn stackful<T, F: FnOnce() -> T>(f: F) -> T {
     StackfulFuture::new(f).await
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[should_panic]
 fn panick() {
@@ -143,6 +144,7 @@ fn panick() {
     }));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn drop_before_polling() {
     drop(stackful(|| {
@@ -150,6 +152,7 @@ fn drop_before_polling() {
     }));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn drop_after_polling() {
     let waker = futures::task::noop_waker_ref();
@@ -162,6 +165,7 @@ fn drop_after_polling() {
     assert!(CONTEXT.with(|ctx| ctx.get()).is_none());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn test() {
     async_std::task::block_on(stackful(|| {
