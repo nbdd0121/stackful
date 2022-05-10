@@ -55,9 +55,10 @@
 
 #![cfg_attr(feature = "nightly", feature(generator_trait))]
 
+mod page_size;
+
 mod fiber;
 pub mod generator;
-mod page_size;
 
 #[cfg(feature = "future")]
 pub mod future;
