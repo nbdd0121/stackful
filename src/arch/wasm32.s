@@ -34,11 +34,7 @@ unwinding_stack:
 # * -12: asyncify stack limit
 # * -16: asyncify stack pointer
 #
-# If the entry point is 0, it means that the suspended stack is the main stack, and it not
-# entered from fiber_enter.
-#
-# For a suspended stack created from fiber_enter, the bytes below the specified 16 bytes are used
-# as asyncify stack when it is suspended.
+# The bytes below the specified 16 bytes are used as asyncify stack when it is suspended.
 
 .section .text.fiber_enter,"",@
 

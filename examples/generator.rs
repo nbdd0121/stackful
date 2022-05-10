@@ -9,7 +9,7 @@ fn main() {
         }
 
         // Test yield cross nested generators.
-        let mut gen2 = StackfulGenerator::new(|yy: &YieldHandle<(), ()>, ()| {
+        let mut gen2 = StackfulGenerator::new(|_: &YieldHandle<(), ()>, ()| {
             assert_eq!(r, 100);
             r = y.yeet(100);
         });
