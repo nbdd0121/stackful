@@ -10,6 +10,11 @@ mod alloc;
 #[cfg(target_arch = "wasm32")]
 pub use alloc::*;
 
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::*;
+
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct StackPointer(pub NonZeroUsize);

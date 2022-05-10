@@ -4,7 +4,7 @@ use crate::page_size;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub struct Stack(pub usize);
+pub struct Stack(usize);
 
 // Keep a stack so that repeated fiber calls don't require new allocation.
 static STACK_CACHE: AtomicUsize = AtomicUsize::new(0);

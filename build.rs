@@ -1,6 +1,14 @@
 use std::env;
 
 fn main() {
+    let target = env::var("TARGET").unwrap();
+    if target.contains("windows") {
+        cc::Build::new()
+            .file("src/arch/windows.c")
+            .compile("stackful");
+        return;
+    }
+
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let file = match &*target_arch {
         "x86_64" => "src/arch/x86_64.s",

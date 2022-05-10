@@ -55,6 +55,7 @@
 
 #![cfg_attr(feature = "nightly", feature(generator_trait))]
 
+#[cfg(not(any(target_arch = "wasm32", windows)))]
 mod page_size;
 
 mod fiber;

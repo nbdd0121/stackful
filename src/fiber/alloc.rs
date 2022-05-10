@@ -1,6 +1,6 @@
 use super::*;
 
-pub struct Stack(pub usize);
+pub struct Stack(usize);
 
 impl Stack {
     pub fn allocate() -> Self {
