@@ -20,7 +20,8 @@ extern "C" {
         payload: usize,
         f: extern "C" fn(StackPointer, payload: usize) -> !,
     ) -> SwitchResult;
-    pub fn fiber_switch(stack: StackPointer, payload: usize) -> SwitchResult;
+    pub fn fiber_switch_enter(stack: StackPointer, payload: usize) -> SwitchResult;
+    pub fn fiber_switch_leave(stack: StackPointer, payload: usize) -> SwitchResult;
 }
 
 pub struct Stack(pub usize);

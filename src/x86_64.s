@@ -39,15 +39,18 @@ _fiber_enter:
     # Switch stack and enter
     xchg rsp, rdi
     call rdx
-
     ud2
 .size fiber_enter, .-fiber_enter
 
 # fiber_switch: fn(StackPointer, usize) -> SwitchResult
-.global fiber_switch
-.global _fiber_switch
-fiber_switch:
-_fiber_switch:
+.global fiber_switch_enter
+.global _fiber_switch_enter
+.global fiber_switch_leave
+.global _fiber_switch_leave
+fiber_switch_enter:
+_fiber_switch_enter:
+fiber_switch_leave:
+_fiber_switch_leave:
     call fiber_save_raw
     # Switch stack
     mov rax, rsp

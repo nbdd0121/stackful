@@ -81,7 +81,7 @@ extern "C" fn enter<Y, R, Resume>(stack: StackPointer, payload: usize) -> ! {
     if let Err(ref err) = output {
         if err.is::<DropPanic>() {
             unsafe {
-                fiber_switch(yielder.stack.get(), 1);
+                fiber_switch_leave(yielder.stack.get(), 1);
             }
 
             unreachable!("resuming a cancelled generator");
@@ -90,7 +90,7 @@ extern "C" fn enter<Y, R, Resume>(stack: StackPointer, payload: usize) -> ! {
 
     unsafe { (yielder.payload.get() as *mut std::thread::Result<R>).write(output) };
     unsafe {
-        fiber_switch(yielder.stack.get(), 1);
+        fiber_switch_leave(yielder.stack.get(), 1);
     }
 
     unreachable!("resuming a completed generator");
@@ -100,7 +100,7 @@ impl<Y, R, Resume> Drop for StackfulGenerator<'_, Y, R, Resume> {
     fn drop(&mut self) {
         if let Some(stack) = self.result {
             unsafe {
-                fiber_switch(stack, 0);
+                fiber_switch_enter(stack, 0);
             }
         }
     }
@@ -137,7 +137,7 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
             }
             Some(v) => {
                 stacker::set_stack_limit(self.stack_limit);
-                unsafe { fiber_switch(v, core::ptr::addr_of_mut!(payload) as usize) }
+                unsafe { fiber_switch_enter(v, core::ptr::addr_of_mut!(payload) as usize) }
             }
         };
         self.result = result.stack;
@@ -160,7 +160,7 @@ impl<Y, Resume> YieldHandle<Y, Resume> {
     pub fn yeet(&self, arg: Y) -> Resume {
         unsafe {
             self.payload.get().write(arg);
-            let result = fiber_switch(self.stack.get(), 0);
+            let result = fiber_switch_leave(self.stack.get(), 0);
             self.stack.set(result.stack.unwrap());
             self.payload.set(result.payload as *mut Y);
             if result.payload == 0 {

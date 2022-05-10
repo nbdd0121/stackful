@@ -47,10 +47,14 @@ _fiber_enter:
 .size fiber_enter, .-fiber_enter
 
 # fiber_switch: fn(StackPointer, usize) -> SwitchResult
-.global fiber_switch
-.global _fiber_switch
-fiber_switch:
-_fiber_switch:
+.global fiber_switch_enter
+.global _fiber_switch_enter
+.global fiber_switch_leave
+.global _fiber_switch_leave
+fiber_switch_enter:
+_fiber_switch_enter:
+fiber_switch_leave:
+_fiber_switch_leave:
     mov x9, x30
     bl  fiber_save_raw
     # Switch stack
