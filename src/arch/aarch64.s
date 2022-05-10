@@ -36,29 +36,77 @@ fiber_restore_ret_raw:
 .type fiber_enter, @function
 fiber_enter:
 _fiber_enter:
+.cfi_startproc
+    # Top of the fresh stack, we use these to store the last function that
+    # calls fiber_enter/fiber_switch_enter so that the stack trace can continue
+    # past this function.
+    sub x0, x0, 0x10
+    mov x9, sp
+    stp x9, x30, [x0]
+
     mov x9, x30
     bl  fiber_save_raw
+
     # Switch stack and enter
-    mov x9, sp
-    mov sp, x0
-    mov x0, x9
+    mov x9, x0
+    mov x0, sp
+    mov sp, x9
+
+    # CFI metadata to instruct unwinder to find our saved info at the top of stack.
+    .cfi_def_cfa sp, 16
+    .cfi_offset sp, -16
+    .cfi_offset x30, -8
+
+    # Save the top-of-stack address in old stack frame; otherwise this will be lost after a switch
+    str x9, [x0, -8]
+
     blr x2
     brk 1
 .size fiber_enter, .-fiber_enter
+.cfi_endproc
 
-# fiber_switch: fn(StackPointer, usize) -> SwitchResult
+# fiber_switch_enter: fn(StackPointer, usize) -> SwitchResult
 .global fiber_switch_enter
 .global _fiber_switch_enter
-.global fiber_switch_leave
-.global _fiber_switch_leave
 fiber_switch_enter:
 _fiber_switch_enter:
+    # Extract the saved top-of-stack address
+    ldr x3, [x0, -8]
+
+    # Fill the address with new caller info for a proper stack trace
+    mov x9, sp
+    stp x9, x30, [x3]
+
+    mov x9, x30
+    bl  fiber_save_raw
+
+    # Switch stack
+    mov x9, x0
+    mov x0, sp
+    mov sp, x9
+
+    # Save the top-of-stack address in old stack frame again.
+    str x3, [x0, -8]
+
+    b   fiber_restore_ret_raw
+
+# fiber_switch_leave: fn(StackPointer, usize) -> SwitchResult
+.global fiber_switch_leave
+.global _fiber_switch_leave
 fiber_switch_leave:
 _fiber_switch_leave:
     mov x9, x30
     bl  fiber_save_raw
+
+    # Extract the saved top-of-stack address
+    ldr x3, [x0, -8]
+
     # Switch stack
-    mov x9, sp
-    mov sp, x0
-    mov x0, x9
+    mov x9, x0
+    mov x0, sp
+    mov sp, x9
+
+    # Save the top-of-stack address
+    str x3, [x0, -8]
+
     b   fiber_restore_ret_raw
