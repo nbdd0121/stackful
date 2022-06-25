@@ -9,7 +9,7 @@ description = "Bridge between sync and async"
 
 [dependencies]
 futures-executor = { version = "0.3.5", optional = true }
-stacker = { git = "https://github.com/nbdd0121/stacker.git" }
+stacker = { git = "https://github.com/nbdd0121/stacker.git", optional = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", windows)))'.dependencies]
 libc = "0.2"

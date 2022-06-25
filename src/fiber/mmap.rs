@@ -47,6 +47,7 @@ impl Stack {
         }
     }
 
+    #[allow(unused)]
     pub fn bottom(&self) -> usize {
         self.0
     }

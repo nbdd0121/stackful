@@ -26,6 +26,7 @@ pub trait Generator<R = ()> {
 pub struct StackfulGenerator<'a, Y, R, Resume> {
     stack: Stack,
     result: Option<StackPointer>,
+    #[cfg(feature = "stacker")]
     stack_limit: Option<usize>,
     func: Option<Box<dyn FnOnce(&YieldHandle<Y, Resume>, Resume) -> R + 'a>>,
     // Make sure this Generator is not Send.
@@ -49,6 +50,7 @@ impl<'a, Y, R, Resume> StackfulGenerator<'a, Y, R, Resume> {
         Self {
             func: Some(Box::new(f)),
             stack,
+            #[cfg(feature = "stacker")]
             stack_limit: None,
             result: None,
             _marker: PhantomData,
@@ -109,6 +111,7 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
 
     fn resume(mut self: Pin<&mut Self>, arg: Resume) -> GeneratorState<Y, R> {
         let payload = &arg as *const _ as usize;
+        #[cfg(feature = "stacker")]
         let stack_limit = stacker::get_stack_limit();
         let result = match self.result {
             None => {
@@ -116,6 +119,7 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
                     f: ManuallyDrop::new(self.func.take().expect("polling a completed future")),
                     p: payload,
                 };
+                #[cfg(feature = "stacker")]
                 stacker::set_stack_limit(Some(self.stack.bottom()));
                 unsafe {
                     fiber_enter(
@@ -126,14 +130,18 @@ impl<Y, R, Resume> Generator<Resume> for StackfulGenerator<'_, Y, R, Resume> {
                 }
             }
             Some(v) => {
+                #[cfg(feature = "stacker")]
                 stacker::set_stack_limit(self.stack_limit);
                 unsafe { fiber_switch_enter(v, payload) }
             }
         };
         std::mem::forget(arg);
         self.result = result.stack;
-        self.stack_limit = stacker::get_stack_limit();
-        stacker::set_stack_limit(stack_limit);
+        #[cfg(feature = "stacker")]
+        {
+            self.stack_limit = stacker::get_stack_limit();
+            stacker::set_stack_limit(stack_limit);
+        }
 
         let y_payload = unsafe { (result.payload as *const YieldPayload).read() };
 
